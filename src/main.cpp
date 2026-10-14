@@ -64,9 +64,7 @@ static const int      SUSPECT_THRESHOLD = 30;
 static const int      NEAR_RSSI         = -60;
 static const int      VERY_NEAR_RSSI    = -50;
 static const int      BASELINE_JUMP_DB  = 15;     // RSSI rise vs baseline that counts
-static const uint32_t BLE_WINDOW_MS     = 1500;
 static const uint32_t BASELINE_MS       = 5000;
-static const uint8_t  WIFI_EVERY_N      = 3;
 static const uint32_t STALE_MS          = 20000;
 static const uint32_t LONG_PRESS_MS     = 1000;
 static const uint32_t IDLE_SLEEP_MS     = 120000; // deep sleep after 2 min without buttons or hits
@@ -268,30 +266,70 @@ static int scoreBle(const NimBLEAdvertisedDevice* d, String& outName, bool& hasU
     return score;
 }
 
-static void bleScanWindow(uint32_t ms, bool intoBaseline) {
-    NimBLEScan* scan = NimBLEDevice::getScan();
-    NimBLEScanResults res = scan->getResults(ms, false);
-    bleSeenCount = res.getCount();
-    for (int i = 0; i < res.getCount(); i++) {
-        const NimBLEAdvertisedDevice* d = res.getDevice(i);
+// The BLE scan runs continuously in the NimBLE host task. Each advertisement
+// is scored in the callback and pushed onto a small queue; loop() drains it.
+// Nothing in loop() blocks on the radio any more, so buttons and the display
+// stay responsive.
+struct BleRec { String id; String name; int rssi; int score; bool uart; NimBLEAddress addr; };
+static std::vector<BleRec> bleQueue;
+static SemaphoreHandle_t bleMutex = nullptr;
+static std::map<String,uint32_t> bleSeenMap;      // id -> last seen ms, for the header count
+static bool bleScanning = false;
+
+class ScanCB : public NimBLEScanCallbacks {
+    void onResult(const NimBLEAdvertisedDevice* d) override {
         String id = d->getAddress().toString().c_str(); id.toUpperCase();
-        if (intoBaseline) { baseline[id] = max(baseline.count(id) ? baseline[id] : -127, (int)d->getRSSI()); continue; }
         String name; bool uart = false;
         int score = scoreBle(d, name, uart);
-        if (score > 0 || baselineValid) {
-            String label = name.length() ? name : ("?" + id.substring(9));
-            NimBLEAddress a = d->getAddress();
-            upsertHit(id, label, d->getRSSI(), score, KIND_BLE, uart, &a);
+        BleRec r{ id, name, d->getRSSI(), score, uart, d->getAddress() };
+        if (xSemaphoreTake(bleMutex, pdMS_TO_TICKS(20)) == pdTRUE) {
+            if (bleQueue.size() < 64) bleQueue.push_back(r);
+            xSemaphoreGive(bleMutex);
         }
     }
-    scan->clearResults();
+    void onScanEnd(const NimBLEScanResults&, int) override {
+        if (bleScanning) NimBLEDevice::getScan()->start(0, false, true);   // keep it rolling
+    }
+};
+static ScanCB scanCb;
+
+static void bleStart() {
+    bleScanning = true;
+    NimBLEScan* scan = NimBLEDevice::getScan();
+    if (!scan->isScanning()) scan->start(0, false, true);
+}
+static void bleStop() {
+    bleScanning = false;
+    NimBLEDevice::getScan()->stop();
+}
+
+// Pull everything the callback collected since the last call.
+static void bleDrain(bool intoBaseline) {
+    std::vector<BleRec> batch;
+    if (xSemaphoreTake(bleMutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+        batch.swap(bleQueue);
+        xSemaphoreGive(bleMutex);
+    }
+    uint32_t now = millis();
+    for (auto& r : batch) {
+        if (intoBaseline) { baseline[r.id] = max(baseline.count(r.id) ? baseline[r.id] : -127, r.rssi); continue; }
+        bleSeenMap[r.id] = now;
+        if (r.score > 0 || baselineValid) {
+            String label = r.name.length() ? r.name : ("?" + r.id.substring(9));
+            upsertHit(r.id, label, r.rssi, r.score, KIND_BLE, r.uart, &r.addr);
+        }
+    }
+    // header count = distinct devices heard in the last few seconds
+    for (auto it = bleSeenMap.begin(); it != bleSeenMap.end();)
+        if (now - it->second > 5000) it = bleSeenMap.erase(it); else ++it;
+    bleSeenCount = bleSeenMap.size();
 }
 
 // Active probe: HM-10 style modules answer "P" with "M" on FFE1.
 static int probeDevice(Hit& h) {
     if (h.kind != KIND_BLE) return -1;
     say("Probing " + h.name, 3000);
-    NimBLEDevice::getScan()->stop();
+    bleStop();
     NimBLEClient* c = NimBLEDevice::createClient();
     c->setConnectTimeout(PROBE_TIMEOUT_MS / 1000 + 1);
     int result = 0;
@@ -316,6 +354,7 @@ static int probeDevice(Hit& h) {
         c->disconnect();
     }
     NimBLEDevice::deleteClient(c);
+    bleStart();
     h.probe = result;
     if (result == 1) { h.score = 100; addLog(h); say("HANDSHAKE! skimmer", 4000); }
     else say(result == 0 ? "No handshake" : "Probe failed", 1500);
@@ -329,9 +368,10 @@ static void autoProbe() {
 }
 
 // ---------------- WiFi ----------------
-static void wifiScanWindow(bool intoBaseline) {
-    int n = WiFi.scanNetworks(false, true);
-    if (n < 0) { WiFi.scanDelete(); return; }
+static bool wifiBusy = false;
+static uint32_t wifiLastStart = 0;
+
+static void wifiCollect(bool intoBaseline, int n) {
     wifiSeenCount = n;
     for (int i = 0; i < n; i++) {
         String ssid = WiFi.SSID(i); int rssi = WiFi.RSSI(i);
@@ -350,6 +390,29 @@ static void wifiScanWindow(bool intoBaseline) {
     }
     WiFi.scanDelete();
 }
+// Non-blocking: starts a scan every WIFI_PERIOD_MS and harvests it when ready.
+static const uint32_t WIFI_PERIOD_MS = 4500;
+static void wifiService() {
+    if (wifiBusy) {
+        int n = WiFi.scanComplete();
+        if (n == WIFI_SCAN_RUNNING) return;
+        wifiBusy = false;
+        if (n >= 0) wifiCollect(false, n); else WiFi.scanDelete();
+        return;
+    }
+    if (millis() - wifiLastStart >= WIFI_PERIOD_MS) {
+        wifiLastStart = millis();
+        WiFi.scanNetworks(true, true);
+        wifiBusy = true;
+    }
+}
+// Blocking version, used only inside baseline capture.
+static void wifiScanWindow(bool intoBaseline) {
+    if (wifiBusy) { WiFi.scanDelete(); wifiBusy = false; }
+    int n = WiFi.scanNetworks(false, true);
+    if (n < 0) { WiFi.scanDelete(); return; }
+    wifiCollect(intoBaseline, n);
+}
 
 // ---------------- baseline ----------------
 static void captureBaseline() {
@@ -360,8 +423,9 @@ static void captureBaseline() {
     oled.setCursor(0, 34); oled.print("terminal. 5s...");
     oled.display();
     digitalWrite(PIN_LED, LOW);
+    bleDrain(false);                                   // discard whatever was pending
     uint32_t t0 = millis();
-    while (millis() - t0 < BASELINE_MS) bleScanWindow(1000, true);
+    while (millis() - t0 < BASELINE_MS) { delay(50); bleDrain(true); }
     wifiScanWindow(true);
     digitalWrite(PIN_LED, HIGH);
     baselineValid = true;
@@ -550,9 +614,12 @@ static void startButtonTask() {
 // Drain queued presses. Called from loop() only.
 static void handleButtons() {
     BtnMsg m;
+    bool any = false;
     while (btnQueue && xQueueReceive(btnQueue, &m, 0) == pdTRUE) {
         if (m.ev == EV_SHORT) onShort(m.btn); else if (m.ev == EV_LONG) onLong(m.btn);
+        any = true;
     }
+    if (any) render();
 }
 
 // ---------------- sleep ----------------
@@ -564,6 +631,7 @@ static void maybeSleep() {
     delay(800);
     oled.ssd1306_command(SSD1306_DISPLAYOFF);
     digitalWrite(PIN_LED, HIGH); digitalWrite(PIN_HAPTIC, LOW);
+    bleStop();
     NimBLEDevice::deinit(true);
     WiFi.mode(WIFI_OFF);
     esp_deep_sleep_enable_gpio_wakeup(1ULL << PIN_BTN_MODE, ESP_GPIO_WAKEUP_GPIO_LOW);
@@ -633,7 +701,10 @@ void setup() {
     NimBLEDevice::init("");
     NimBLEScan* scan = NimBLEDevice::getScan();
     scan->setActiveScan(true); scan->setInterval(100); scan->setWindow(99);
-    scan->setDuplicateFilter(false); scan->setMaxResults(64);
+    scan->setDuplicateFilter(false); scan->setMaxResults(0);   // callbacks only, keep no result list
+    scan->setScanCallbacks(&scanCb, false);
+    bleMutex = xSemaphoreCreateMutex();
+    bleStart();
 
     lastActivity = millis();
     delay(800);
@@ -641,17 +712,14 @@ void setup() {
 }
 
 void loop() {
-    static uint8_t cycle = 0;
+    static uint32_t lastRender = 0;
     handleButtons();
-    bleScanWindow(BLE_WINDOW_MS, false);
-    handleButtons();
-    if (++cycle >= WIFI_EVERY_N) { cycle = 0; wifiScanWindow(false); }
+    bleDrain(false);
+    wifiService();
     expireHits();
     autoProbe();
-    render();
+    if (millis() - lastRender >= 150 || (alertActive && !alertAcked)) { render(); lastRender = millis(); }
     if (logDirty && millis() - lastLogWrite > 10000) { saveLog(); lastLogWrite = millis(); }
     maybeSleep();
-
-    uint32_t t = millis();
-    while (millis() - t < 150) { handleButtons(); if (alertActive && !alertAcked) render(); delay(25); }
+    delay(10);
 }
