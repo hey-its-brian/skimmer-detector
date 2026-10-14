@@ -33,26 +33,41 @@ SDA/SCL orientation is auto-detected at boot, so swapping D4 and D5 still works.
 
 Measure the alert device before wiring it. A piezo (over ~100 ohms) can go straight to D0. A magnetic buzzer or vibration motor (under ~100 ohms) needs an NPN driver (2N2222 or S8050, 1k base resistor, flyback diode); the PCB has pads for this. A low-resistance buzzer wired straight to a GPIO can drag the I2C lines low and blank the display.
 
-## Controls
+## Using it (simple mode, the default)
+
+One screen, four states, no menus. Built for someone who will never read this file.
+
+| Screen | What it means | What to do |
+|---|---|---|
+| **READY** / On the slot | Awake and listening | Hold it on the card slot, press the red button |
+| **WAIT** / Hold still | Checking, 10 second fill bar | Keep it on the slot |
+| **SAFE** / Go ahead | Nothing suspicious heard. One long buzz. | Use the card |
+| **STOP** / Pay inside | Skimmer signature heard. Bright inverted band, three short buzzes. | Tap, pay inside, or cash. Call Brian. |
+
+- Every front button does the same thing: start a check. A press counts after 120 ms of contact; hold length is ignored.
+- Only the **red** and **blue** buttons can wake it from sleep (the C6 only wakes on GPIO 0 to 7). Teach the red one.
+- A result stays on screen for 60 seconds, then it goes back to READY. It sleeps after 2 minutes without a press.
+- There is no baseline step. Each completed check becomes the comparison for the next one, so pressing once in the car and again at the pump gives the "got stronger" bonus for free. A single check at the slot is signature-only, which is what catches an HM-10 anyway.
+- STOP requires a real signature (module name, UART service, vendor OUI, or a successful handshake), or a device that is both very close and got markedly stronger since the previous check. Proximity alone never produces STOP.
+- Nothing can be allow-listed from this mode. The owner does that in maintenance mode.
+
+Back label: `Hold on card slot. Press RED. 1 buzz = SAFE. 3 = STOP, pay another way.`
+
+What to say when handing it over: "Hold it on the slot where the card goes in. Press the red button. One long buzz and SAFE means go ahead. Three short buzzes and STOP means tap, pay inside, or cash, and call me. It sometimes says STOP at a store that's fine. It can't catch every kind of skimmer, so still cover the keypad and check your statement. If it doesn't light up when you press red, it needs charging, and no answer means pay another way."
+
+## Maintenance mode (hold BOOT on the back for 3 seconds)
+
+The full UI with pages, scores, and RSSI. Hold BOOT again to leave; it also exits on its own after 60 seconds without a press.
 
 | Button | Short press | Long press (1s) |
 |--------|-------------|-----------------|
-| MODE (red) | Next page (All, BLE, WiFi, Log, Allow) | Capture baseline |
-| UP (blue) | Cursor up | Jump to top |
-| DOWN (green) | Cursor down | Clear list (on Log page: clear log) |
-| OK (yellow) | Probe selected BLE device | Add selected to allow list (on Allow page: remove) |
-| BOOT (on back) | Acknowledge alert (else next page) | Clear list (on Log page: clear log) |
+| RED (MODE) | Next page (All, BLE, WiFi, Log, Allow) | Capture a manual baseline |
+| BLUE (UP) | Cursor up | Jump to top |
+| GREEN (DOWN) | Cursor down | Clear list (on Log page: clear log) |
+| YELLOW (OK) | Probe selected BLE device | Add selected to allow list (on Allow page: remove) |
+| BOOT | Acknowledge alert (else next page) | Clear list (on Log page: clear log) |
 
-Any front button acknowledges an alert (OK probes the alerting device instead). Any press keeps it awake. After 2 minutes idle with no alert it deep sleeps; press MODE to wake.
-
-## Recommended routine
-
-1. Power on. Standing a few feet from the register, hold MODE for a second. It scans for 5s and stores every device it can hear as the baseline. A `*` appears in the header.
-2. Walk up and hold the unit within a few inches of the card slot and PIN pad for 5 to 10 seconds.
-3. Anything that got 15 dBm stronger than baseline, or is new and strong, gets flagged. Anything that advertises the HM-10 style UART service is probed automatically: the unit connects, sends `P`, and if it gets `M` back the screen says SKIMMER and the score goes to 100.
-4. ALERT flashes the screen, LED, and haptic. Any button acknowledges. OK probes the alerting device manually if you want confirmation.
-5. If a store's own POS gear keeps tripping it, select it and hold OK. It is saved to flash and ignored from then on. Manage the list on the Allow page.
-6. Hits at 60+ are logged with uptime, MAC, name, and score (last 24, saved to flash). Serial at 115200 prints full details.
+To tune a unit for someone's regular stores: enter maintenance mode at each store, select the POS gear that shows up, hold yellow to allow-list it. The allow list and the hit log (last 24 hits at 60+) are kept in flash. Serial at 115200 prints `[CHECK]`, `[LOG]`, `[PROBE]` and `[MODE]` lines.
 
 ## Build and flash
 
@@ -67,7 +82,7 @@ pio device monitor -b 115200
 
 Boot output from a healthy unit starts with `[OLED] found 0x3C  SDA=GPIO22 SCL=GPIO23` and `[OLED] init OK`. If it says `not found`, the display is not on the bus: check power, header joints, and anything else sharing D4/D5.
 
-## Scoring
+## Scoring (shared by both modes)
 
 BLE:
 - Known module name (HM-10, HC-08, JDY-xx, CC41, AT-09, BT05, ...): +80
