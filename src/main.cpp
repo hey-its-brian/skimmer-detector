@@ -518,15 +518,40 @@ static void onLong(int b) {
         case B_DOWN: clearListOrLog(); break;
     }
 }
+// Button polling runs in its own FreeRTOS task so a quick tap is caught even
+// while the main loop is blocked inside a 1.5 s BLE scan window. The task
+// only records events; the loop consumes them so UI/BLE work stays on one thread.
+enum BtnEvent : uint8_t { EV_NONE, EV_SHORT, EV_LONG };
+struct BtnMsg { uint8_t btn; uint8_t ev; };
+static QueueHandle_t btnQueue = nullptr;
+
+static void buttonTask(void*) {
+    for (;;) {
+        uint32_t now = millis();
+        for (int i = 0; i < 5; i++) {
+            Btn& b = btns[i];
+            bool down = digitalRead(b.pin) == LOW;
+            if (down && !b.wasDown) { b.downAt = now; b.longFired = false; }
+            if (down && b.wasDown && !b.longFired && now - b.downAt >= LONG_PRESS_MS) {
+                b.longFired = true; BtnMsg m{ (uint8_t)i, EV_LONG }; xQueueSend(btnQueue, &m, 0);
+            }
+            if (!down && b.wasDown && !b.longFired && now - b.downAt > 30) {
+                BtnMsg m{ (uint8_t)i, EV_SHORT }; xQueueSend(btnQueue, &m, 0);
+            }
+            b.wasDown = down;
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
+static void startButtonTask() {
+    btnQueue = xQueueCreate(8, sizeof(BtnMsg));
+    xTaskCreate(buttonTask, "btns", 2048, nullptr, 2, nullptr);
+}
+// Drain queued presses. Called from loop() only.
 static void handleButtons() {
-    uint32_t now = millis();
-    for (int i = 0; i < 5; i++) {
-        Btn& b = btns[i];
-        bool down = digitalRead(b.pin) == LOW;
-        if (down && !b.wasDown) { b.downAt = now; b.longFired = false; }
-        if (down && b.wasDown && !b.longFired && now - b.downAt >= LONG_PRESS_MS) { b.longFired = true; onLong(i); }
-        if (!down && b.wasDown && !b.longFired && now - b.downAt > 30) onShort(i);
-        b.wasDown = down;
+    BtnMsg m;
+    while (btnQueue && xQueueReceive(btnQueue, &m, 0) == pdTRUE) {
+        if (m.ev == EV_SHORT) onShort(m.btn); else if (m.ev == EV_LONG) onLong(m.btn);
     }
 }
 
@@ -612,6 +637,7 @@ void setup() {
 
     lastActivity = millis();
     delay(800);
+    startButtonTask();
 }
 
 void loop() {
