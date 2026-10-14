@@ -582,9 +582,9 @@ static void onLong(int b) {
         case B_DOWN: clearListOrLog(); break;
     }
 }
-// Button polling runs in its own FreeRTOS task so a quick tap is caught even
-// while the main loop is blocked inside a 1.5 s BLE scan window. The task
-// only records events; the loop consumes them so UI/BLE work stays on one thread.
+// Button polling runs in its own FreeRTOS task (10 ms) so a tap is never missed
+// even if loop() is busy (baseline capture, a probe, a flash write). The task
+// only records events; loop() consumes them so UI/BLE work stays on one thread.
 enum BtnEvent : uint8_t { EV_NONE, EV_SHORT, EV_LONG };
 struct BtnMsg { uint8_t btn; uint8_t ev; };
 static QueueHandle_t btnQueue = nullptr;
