@@ -23,8 +23,8 @@ def chrome(d, tab):
     d.rectangle((0, 0, W, TOP), fill=PANEL)
     d.text((6, 3), "B", fill=BLUE, font=F12); d.text((18, 3), "12", fill=TEXT, font=F12)
     d.text((48, 3), "W", fill=ACC, font=F12); d.text((62, 3), "5", fill=TEXT, font=F12)
-    d.text((132, 3), "SKIM-DET", fill=MUTED, font=F12)
-    d.text((W - 50, 3), "SD", fill=GREEN, font=F12); d.text((W - 36, 3), "2:14", fill=MUTED, font=F12)
+    d.text((116, 3), "SKIM-DET", fill=MUTED, font=F12)
+    d.text((W - 86, 3), "G8", fill=GREEN, font=F12); d.text((W - 62, 3), "SD", fill=GREEN, font=F12); d.text((W - 42, 3), "15:24Z", fill=MUTED, font=F12)
     names = ["HOME", "DEVICES", "LOG", "SETUP"]
     for i, n in enumerate(names):
         on = i == tab
@@ -102,12 +102,12 @@ def devices():
 def setup():
     im = Image.new("RGB", (W, H), BG); d = ImageDraw.Draw(im)
     chrome(d, 3)
-    labels = ["Sound: on", "LED: on", "Auto dim: on", "Sleep: 3 min", "Invert: off", "R/B swap: off", "Flip screen", "Bright: 78%", "Calibrate touch", "Baseline now", "Allowed (2)", "About"]
+    labels = ["Sound: on", "LED: on", "Auto dim: on", "Sleep: 3 min", "Invert: off", "R/B swap: off", "Flip screen", "Bright: 78%", "Calibrate touch", "Baseline now", "Allowed (2)", "About", "GPS: on", "GPS baud: 9k", "Clear log"]
     x0 = (W - 3 * 106) // 2 + 3
     for i, l in enumerate(labels):
         c, r = i % 3, i // 3
         fill = ACC if i == 9 else PANEL2 if i in (8, 10, 11) else PANEL
-        button(d, x0 + c * 106, TOP + 6 + r * 44, 100, 40, l, fill, BG if i == 9 else TEXT, F12)
+        button(d, x0 + c * 106, TOP + 6 + r * 35, 100, 32, l, fill, BG if i == 9 else TEXT, F12)
     return im
 
 if __name__ == "__main__":

@@ -22,7 +22,7 @@ struct Hit {
     NimBLEAddress addr;
     uint8_t  factors;
 };
-struct LogEntry { uint32_t t; Kind kind; String id; String name; int score; int rssi; uint8_t factors; };
+struct LogEntry { uint32_t t; Kind kind; String id; String name; int score; int rssi; uint8_t factors; bool hasFix; float lat, lon; };
 
 // check state machine (the Home screen)
 enum CheckState : uint8_t { ST_READY, ST_WAIT, ST_SAFE, ST_STOP };

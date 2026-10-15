@@ -23,7 +23,7 @@ The [[Skimmer Detector]] detector on the 2-USB [[Cheap Yellow Display]] (ESP32-2
 - ESP32-2432S028R, 2-USB revision (USB-C + micro-USB). ESP32-WROOM-32, 4 MB flash, no PSRAM. Panel is ST7789V on most units, ILI9342 on recent AliExpress batches (build with `-DPANEL_ILI9342=1` for those).
 - microSD, FAT32, optional. Log, checks and allow list go on it.
 - USB-A to C or micro-USB for power and flashing. The USB-C port has no CC resistors, C-to-C cables do nothing.
-- Free headers: CN1 (I2C) and P3 are unused, so sensors or a haptic driver could still go there later.
+- GPS on CN1: 3V3 -> VCC, GND -> GND, GPIO22 <- module TX, GPIO27 -> module RX (optional). Any NMEA module, 9600 baud default (ATGM336H, NEO-xM, BN-220). Draws power through deep sleep; switch its 3V3 lead if needed. P3 stays free.
 
 ## Pins the firmware uses
 
@@ -37,6 +37,7 @@ All fixed by the board (`cyd/src/board.h`):
 | RGB LED (active low) | R 4, G 16, B 17 |
 | Speaker amp | 26 (LEDC tone) |
 | Light sensor | 34 (ADC) |
+| GPS UART (Serial2) | RX 22, TX 27 on CN1 |
 
 Touch is bit-banged on purpose: LovyanGFX's touch driver wants a hardware SPI host, and both hosts are taken (display on HSPI, SD on VSPI).
 
@@ -49,7 +50,7 @@ pio run -t upload
 
 Or write `firmware/skimmer-detector-cyd-1.0.0-cyd2usb-full.bin` at offset `0x0` (ESP32, 4 MB) with esptool or esptool-js. Partition table `huge_app` (3 MB app, no OTA). Build was 56 KB static RAM, 1.24 MB flash.
 
-Libraries: LovyanGFX 1.2.x (display only), NimBLE-Arduino 2.5.x, Arduino SD. Platform `espressif32@6.9` (Arduino core 2.0.17).
+Libraries: LovyanGFX 1.2.x (display only), NimBLE-Arduino 2.5.x, TinyGPSPlus 1.1, Arduino SD. Platform `espressif32@6.9` (Arduino core 2.0.17).
 
 ## Controls
 
@@ -58,7 +59,7 @@ Libraries: LovyanGFX 1.2.x (display only), NimBLE-Arduino 2.5.x, Arduino SD. Pla
 | HOME | Tap the capybara or CHECK to start a 10 s check. SAFE shows AGAIN, STOP shows WHY? (opens Devices) |
 | DEVICES | Scored devices sorted by score. Tap a row for detail: id, RSSI, score reasons, PROBE (BLE handshake), ALLOW, BACK. Arrows on the right scroll |
 | LOG | Alerts (score 60+), newest first. CLEAR wipes RAM and `/skimlog.csv` |
-| SETUP | Sound, LED, auto-dim, sleep timer (never/1/3/10 min), invert, R/B swap, flip screen, brightness, calibrate touch (3 crosshairs), baseline now, allow list, about |
+| SETUP | Sound, LED, auto-dim, sleep timer (never/1/3/10 min), invert, R/B swap, flip screen, brightness, calibrate touch (3 crosshairs), baseline now, allow list, about, GPS on/off, GPS baud (9.6k/38.4k/115.2k), clear log |
 
 Capybara states mirror the detector: idle (breathes, blinks), sniff (nose wiggles, radar rings), safe (orange on the head, sparkles), stop (hackles up, wide eyes, exclamation marks), sleep after 45 s idle (z z z). Speech bubble lines are at the top of `cyd/src/ui.cpp`.
 
@@ -66,11 +67,11 @@ Deep sleep after the sleep timer (not during a check or while STOP is showing); 
 
 ## SD files
 
-- `/skimlog.csv`: `boot,uptime_s,kind,id,name,score,rssi,factors` per alert
-- `/checks.csv`: `boot,uptime_s,verdict,device,hits` per completed check
+- `/skimlog.csv`: `boot,uptime_s,utc,kind,id,name,score,rssi,factors,lat,lon,sats,hdop` per alert
+- `/checks.csv`: `boot,uptime_s,utc,verdict,device,hits,lat,lon,sats` per completed check
 - `/allow.txt`: one id per line, wins over the NVS copy when the card is in
 
-`boot` is a counter in NVS so rows from different power cycles can be separated. No RTC, so times are uptime.
+`boot` is a counter in NVS so rows from different power cycles can be separated. `utc`, `lat`, `lon` fill in once the GPS has a fix (status bar: green `G8` = fix with 8 sats, yellow `G` = NMEA but no fix, red `G` = nothing on the UART); `uptime_s` is always there. Tapping a LOG row shows its coordinates. The RAM log entry remembers whether it had a fix, and a late fix is back-filled into an entry that is still being updated.
 
 ## Art pipeline
 
@@ -89,6 +90,7 @@ Rendering: the left pane is a 200x180 4-bit palette sprite (18 KB) so the scene 
 
 ## Ideas for later
 
+- GPS done 2026-10-15 (TinyGPSPlus on Serial2).
 - Bluetooth Classic scan with the WiFi stack stopped during the BT window (time-slice the radios instead of running all three).
 - Haptic motor on P3 or CN1 for a silent STOP.
 - Swipe scrolling on the lists once touch calibration is confirmed solid.

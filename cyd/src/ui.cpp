@@ -4,6 +4,7 @@
 #include "detector.h"
 #include "storage.h"
 #include "capy_frames.h"
+#include "gps.h"
 
 extern Touch touch;
 
@@ -118,13 +119,19 @@ static void drawStatus() {
     lcd.setTextColor(C_TEXT, C_PANEL);  lcd.drawString(String(det::wifiSeenCount), 62, TOP / 2);
     lcd.setTextDatum(textdatum_t::middle_center);
     lcd.setTextColor(C_MUTED, C_PANEL);
-    lcd.drawString(det::baselineValid ? "SKIM-DET *" : "SKIM-DET", SCREEN_W / 2, TOP / 2);
+    lcd.drawString(det::baselineValid ? "SKIM-DET *" : "SKIM-DET", SCREEN_W / 2 - 16, TOP / 2);
     // SD + uptime
     lcd.setTextDatum(textdatum_t::middle_right);
     uint32_t s = millis() / 1000;
     char t[16]; snprintf(t, sizeof t, "%lu:%02lu", (unsigned long)(s / 60), (unsigned long)(s % 60));
-    lcd.setTextColor(C_MUTED, C_PANEL); lcd.drawString(t, SCREEN_W - 6, TOP / 2);
-    lcd.setTextColor(storage::sdOk ? C_GREEN : C_RED, C_PANEL); lcd.drawString(storage::sdOk ? "SD" : "sd", SCREEN_W - 50, TOP / 2);
+    String u = gps::utc();
+    if (u.length() >= 19) { u = u.substring(11, 16); u += "Z"; } else u = t;   // GPS clock when there is one
+    lcd.setTextColor(C_MUTED, C_PANEL); lcd.drawString(u, SCREEN_W - 6, TOP / 2);
+    lcd.setTextColor(storage::sdOk ? C_GREEN : C_RED, C_PANEL); lcd.drawString(storage::sdOk ? "SD" : "sd", SCREEN_W - 52, TOP / 2);
+    if (gps::enabled) {
+        lcd.setTextColor(gps::fix ? C_GREEN : gps::charsSeen ? C_YEL : C_RED, C_PANEL);
+        lcd.drawString(gps::fix ? "G" + String(gps::sats) : "G", SCREEN_W - 76, TOP / 2);
+    }
 }
 
 static void drawTabs() {
@@ -372,6 +379,7 @@ static void drawLog() {
         lcd.setTextColor(C_TEXT, C_PANEL);
         String nm = e.name; if (nm.length() > 16) nm = nm.substring(0, 16);
         lcd.drawString(nm, 72, y + ROW_H / 2 - 1);
+        if (e.hasFix) { lcd.setTextColor(C_GREEN, C_PANEL); lcd.drawString("@", SCREEN_W - 100, y + ROW_H / 2 - 1); }
         uint16_t sc = scoreColor(e.score);
         lcd.fillRoundRect(SCREEN_W - 84, y + 5, 36, ROW_H - 12, 4, sc);
         lcd.setTextDatum(textdatum_t::middle_center); lcd.setTextColor(C_BG, sc);
@@ -385,7 +393,7 @@ static void drawLog() {
 
 // ---------------- setup ----------------
 struct SetupBtn { const char* label; };
-static const int SB_W = 100, SB_H = 40, SB_COLS = 3, SB_ROWS = 4;
+static const int SB_W = 100, SB_H = 32, SB_COLS = 3, SB_ROWS = 5;
 static String setupLabel(int i) {
     auto& s = storage::s;
     switch (i) {
@@ -400,7 +408,10 @@ static String setupLabel(int i) {
         case 8: return "Calibrate touch";
         case 9: return "Baseline now";
         case 10: return "Allowed (" + String(det::allowList.size()) + ")";
-        default: return "About";
+        case 11: return "About";
+        case 12: return String("GPS: ") + (s.gpsOn ? "on" : "off");
+        case 13: return "GPS baud: " + String(s.gpsBaud / 1000) + "k";
+        default: return "Clear log";
     }
 }
 static void drawSetup() {
@@ -409,14 +420,14 @@ static void drawSetup() {
     for (int i = 0; i < SB_COLS * SB_ROWS; i++) {
         int c = i % SB_COLS, r = i / SB_COLS;
         uint16_t fill = (i == 9) ? C_ACCENT : (i == 8 || i == 11 || i == 10) ? C_PANEL2 : C_PANEL;
-        button(x0 + c * (SB_W + 6), y0 + r * (SB_H + 4), SB_W, SB_H, setupLabel(i).c_str(), fill, i == 9 ? C_BG : C_TEXT);
+        button(x0 + c * (SB_W + 6), y0 + r * (SB_H + 3), SB_W, SB_H, setupLabel(i).c_str(), fill, i == 9 ? C_BG : C_TEXT);
     }
 }
 static int setupHit(int x, int y) {
     int x0 = (SCREEN_W - SB_COLS * (SB_W + 6)) / 2 + 3, y0 = TOP + 6;
     for (int i = 0; i < SB_COLS * SB_ROWS; i++) {
         int c = i % SB_COLS, r = i / SB_COLS;
-        int bx = x0 + c * (SB_W + 6), by = y0 + r * (SB_H + 4);
+        int bx = x0 + c * (SB_W + 6), by = y0 + r * (SB_H + 3);
         if (x >= bx && x < bx + SB_W && y >= by && y < by + SB_H) return i;
     }
     return -1;
@@ -445,12 +456,13 @@ static void drawAbout() {
     lcd.setFont(&fonts::Font2); lcd.setTextColor(C_TEXT, C_BG);
     lcd.drawString("Firmware " FW_VERSION "  CYD 2-USB", 10, TOP + 36);
     lcd.drawString("Free heap " + String(ESP.getFreeHeap() / 1024) + " KB   boot #" + String(storage::bootCount), 10, TOP + 56);
-    lcd.drawString(storage::sdSummary(), 10, TOP + 76);
+    lcd.drawString(storage::sdSummary() + "   " + gps::summary(), 10, TOP + 76);
+    if (gps::fix) lcd.drawString(gps::latStr() + ", " + gps::lonStr() + "  " + gps::utc(), 10, TOP + 96);
     lcd.setTextColor(C_MUTED, C_BG);
-    lcd.drawString("Looks for HM-10/HC-08/JDY/CC41 BLE bridges,", 10, TOP + 100);
-    lcd.drawString("ESP/AI-Thinker APs, vendor OUIs, UART service,", 10, TOP + 116);
-    lcd.drawString("and runs the P/M handshake probe.", 10, TOP + 132);
-    button(216, TOP + 126, 96, 44, "BACK", C_PANEL, C_TEXT);
+    lcd.drawString("Finds HM-10/HC-08/JDY/CC41 bridges,", 10, TOP + 116);
+    lcd.drawString("ESP APs, OUIs, UART svc, P/M probe.", 10, TOP + 132);
+    lcd.drawString("GPS on CN1: 3V3 GND RX=22 TX=27", 10, TOP + 148);
+    button(216, TOP + 128, 96, 44, "BACK", C_PANEL, C_TEXT);
 }
 static void drawCalib() {
     lcd.fillRect(0, TOP, SCREEN_W, CONT_H, C_BG);
@@ -638,7 +650,16 @@ void onTouch(const TouchPoint& p) {
         }
         case SCR_LOG: {
             if (p.x >= SCREEN_W - 36) { sound(SND_TAP); if (p.y < TOP + CONT_H / 2) listTop = max(0, listTop - (ROWS - 1)); else listTop += ROWS - 1; dirty = true; return; }
-            if (inRect(p, 2, TOP + 2 + (ROWS - 1) * ROW_H, 90, ROW_H - 2)) { sound(SND_TAP); det::clearLog(); storage::clearLogFile(); toast("Log cleared", 1200); dirty = true; }
+            if (inRect(p, 2, TOP + 2 + (ROWS - 1) * ROW_H, 90, ROW_H - 2)) { sound(SND_TAP); det::clearLog(); storage::clearLogFile(); toast("Log cleared", 1200); dirty = true; return; }
+            {   // tap a row: where was it?
+                auto& L = det::logEntries; int n = L.size();
+                int row = (p.y - TOP - 2) / ROW_H;
+                if (row >= 0 && row < ROWS - 1 && n - 1 - listTop - row >= 0) {
+                    auto& e = L[n - 1 - listTop - row];
+                    sound(SND_TAP);
+                    toast(e.hasFix ? String(e.lat, 5) + ", " + String(e.lon, 5) : "No GPS fix for this one", 2500);
+                }
+            }
             break;
         }
         case SCR_SETUP: {
@@ -658,7 +679,11 @@ void onTouch(const TouchPoint& p) {
                 case 8: setScreen(SCR_CALIB); return;
                 case 9: det::captureBaseline(); break;
                 case 10: setScreen(SCR_ALLOW); return;
-                default: setScreen(SCR_ABOUT); return;
+                case 11: setScreen(SCR_ABOUT); return;
+                case 12: s.gpsOn = !s.gpsOn; if (s.gpsOn) gps::begin(s.gpsBaud); else gps::end(); break;
+                case 13: s.gpsBaud = s.gpsBaud == 9600 ? 38400 : s.gpsBaud == 38400 ? 115200 : 9600;
+                         if (s.gpsOn) { gps::end(); gps::begin(s.gpsBaud); } break;
+                default: det::clearLog(); storage::clearLogFile(); toast("Log cleared", 1200); break;
             }
             storage::saveSettings();
             dirty = true;

@@ -13,6 +13,8 @@ struct Settings {
     bool     autoDim   = true;    // LDR dims the backlight in the dark
     uint8_t  sleepMin  = 3;       // deep sleep after N minutes idle, 0 = never
     bool     led       = true;    // RGB status LED
+    bool     gpsOn     = true;    // UART GPS on CN1
+    uint32_t gpsBaud   = 9600;
     TouchCal cal;
 };
 

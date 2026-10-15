@@ -20,6 +20,7 @@
 #include "detector.h"
 #include "storage.h"
 #include "ui.h"
+#include "gps.h"
 
 LGFX lcd;
 Touch touch;
@@ -140,6 +141,7 @@ void goToSleep() {
     led(false, false, false);
     ledcWriteTone(SPK_CH, 0);
     det::shutdown();
+    gps::end();
     storage::flush();
     // PENIRQ (GPIO36) goes low while the panel is pressed
     esp_sleep_enable_ext0_wakeup((gpio_num_t)PIN_TP_IRQ, 0);
@@ -185,6 +187,7 @@ void setup() {
     det::onToast = onToast;
     det::onProgress = onProgress;
     det::begin();
+    if (storage::s.gpsOn) gps::begin(storage::s.gpsBaud);
 
     bool wokeByTouch = esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT0;
     if (wokeByTouch) sound(SND_WAKE);
@@ -196,6 +199,7 @@ void loop() {
     touchService();
     soundService();
     det::service();
+    gps::service();
     ui::service();
     ledService();
     dimService();

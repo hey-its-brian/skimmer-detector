@@ -3,6 +3,7 @@
 #include <Preferences.h>
 #include <SPI.h>
 #include <SD.h>
+#include "gps.h"
 
 namespace storage {
 
@@ -37,8 +38,8 @@ bool remount() {
     SD.end();
     sdOk = SD.begin(PIN_SD_CS, sdSpi, 20000000);
     if (sdOk) {
-        ensureHeader(LOG_FILE,   "boot,uptime_s,kind,id,name,score,rssi,factors");
-        ensureHeader(CHECK_FILE, "boot,uptime_s,verdict,device,hits");
+        ensureHeader(LOG_FILE,   "boot,uptime_s,utc,kind,id,name,score,rssi,factors,lat,lon,sats,hdop");
+        ensureHeader(CHECK_FILE, "boot,uptime_s,utc,verdict,device,hits,lat,lon,sats");
         // allow list on the card wins over NVS if present
         if (SD.exists(ALLOW_FILE)) {
             File f = SD.open(ALLOW_FILE, FILE_READ);
@@ -65,6 +66,8 @@ void begin() {
     s.autoDim    = prefs.getBool("dim", s.autoDim);
     s.sleepMin   = prefs.getUChar("slp", s.sleepMin);
     s.led        = prefs.getBool("led", s.led);
+    s.gpsOn      = prefs.getBool("gps", s.gpsOn);
+    s.gpsBaud    = prefs.getUInt("gpsb", s.gpsBaud);
     s.cal.x0     = prefs.getShort("cx0", s.cal.x0);
     s.cal.x1     = prefs.getShort("cx1", s.cal.x1);
     s.cal.y0     = prefs.getShort("cy0", s.cal.y0);
@@ -84,6 +87,8 @@ void saveSettings() {
     prefs.putBool("dim", s.autoDim);
     prefs.putUChar("slp", s.sleepMin);
     prefs.putBool("led", s.led);
+    prefs.putBool("gps", s.gpsOn);
+    prefs.putUInt("gpsb", s.gpsBaud);
     prefs.putShort("cx0", s.cal.x0); prefs.putShort("cx1", s.cal.x1);
     prefs.putShort("cy0", s.cal.y0); prefs.putShort("cy1", s.cal.y1);
     prefs.putBool("cswap", s.cal.swapXY);
@@ -107,9 +112,10 @@ void appendLog(const LogEntry& e) {
     if (!sdOk) return;
     File f = SD.open(LOG_FILE, FILE_APPEND);
     if (!f) { sdOk = false; return; }
-    f.printf("%lu,%lu,%s,%s,%s,%d,%d,%s\n", (unsigned long)bootCount, (unsigned long)(e.t / 1000),
-             e.kind == KIND_BLE ? "ble" : "wifi", e.id.c_str(), csvSafe(e.name).c_str(), e.score, e.rssi,
-             det::factorText(e.factors));
+    f.printf("%lu,%lu,%s,%s,%s,%s,%d,%d,%s,%s,%s,%u,%.1f\n", (unsigned long)bootCount, (unsigned long)(e.t / 1000),
+             gps::utc().c_str(), e.kind == KIND_BLE ? "ble" : "wifi", e.id.c_str(), csvSafe(e.name).c_str(), e.score, e.rssi,
+             det::factorText(e.factors), e.hasFix ? String(e.lat, 5).c_str() : "", e.hasFix ? String(e.lon, 5).c_str() : "",
+             (unsigned)gps::sats, gps::fix ? gps::hdop : 0.0f);
     f.close();
     logRows++;
 }
@@ -118,15 +124,16 @@ void appendCheck(CheckState verdict, const String& who, size_t hitCount) {
     if (!sdOk) return;
     File f = SD.open(CHECK_FILE, FILE_APPEND);
     if (!f) { sdOk = false; return; }
-    f.printf("%lu,%lu,%s,%s,%u\n", (unsigned long)bootCount, (unsigned long)(millis() / 1000),
-             verdict == ST_STOP ? "STOP" : "SAFE", csvSafe(who).c_str(), (unsigned)hitCount);
+    f.printf("%lu,%lu,%s,%s,%s,%u,%s,%s,%u\n", (unsigned long)bootCount, (unsigned long)(millis() / 1000),
+             gps::utc().c_str(), verdict == ST_STOP ? "STOP" : "SAFE", csvSafe(who).c_str(), (unsigned)hitCount,
+             gps::latStr().c_str(), gps::lonStr().c_str(), (unsigned)gps::sats);
     f.close();
 }
 
 void clearLogFile() {
     if (!sdOk) return;
     SD.remove(LOG_FILE);
-    ensureHeader(LOG_FILE, "boot,uptime_s,kind,id,name,score,rssi,factors");
+    ensureHeader(LOG_FILE, "boot,uptime_s,utc,kind,id,name,score,rssi,factors,lat,lon,sats,hdop");
     logRows = 0;
 }
 

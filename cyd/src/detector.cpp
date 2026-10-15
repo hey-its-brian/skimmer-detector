@@ -1,5 +1,6 @@
 #include "detector.h"
 #include <WiFi.h>
+#include "gps.h"
 #include <algorithm>
 
 namespace det {
@@ -89,9 +90,13 @@ const char* factorText(uint8_t f) {
 // ---------------- log ----------------
 static void addLog(const Hit& h) {
     for (auto& e : logEntries)
-        if (e.id == h.id && millis() - e.t < 600000) { e.score = max(e.score, h.score); e.factors |= h.factors; return; }
+        if (e.id == h.id && millis() - e.t < 600000) {
+            e.score = max(e.score, h.score); e.factors |= h.factors;
+            if (!e.hasFix && gps::fix) { e.hasFix = true; e.lat = gps::lat; e.lon = gps::lon; }   // fix arrived late
+            return;
+        }
     if (logEntries.size() >= LOG_MAX) logEntries.erase(logEntries.begin());
-    LogEntry e{ millis(), h.kind, h.id, h.name, h.score, h.rssi, h.factors };
+    LogEntry e{ millis(), h.kind, h.id, h.name, h.score, h.rssi, h.factors, gps::fix, (float)gps::lat, (float)gps::lon };
     logEntries.push_back(e);
     if (onLog) onLog(e);
     Serial.printf("[LOG] %s %s score=%d\n", h.id.c_str(), h.name.c_str(), h.score);
