@@ -62,7 +62,18 @@ static const char* LINES_READY[] = { "Hold me on the card slot", "Tap me and I'l
 static const char* LINES_WAIT[]  = { "Sniff sniff...", "Hmm, let me listen", "Hold still a sec", "Checking the air..." };
 static const char* LINES_SAFE[]  = { "All clear, go ahead", "Nothing fishy here", "Smells like oranges", "You're good" };
 static const char* LINES_STOP[]  = { "NOPE. Not this one!", "Skimmer! Walk away", "Don't use this reader", "Find another reader" };
-static const char* LINES_SLEEP[] = { "z z z", "Zzz...", "mmm... oranges" };
+static const char* LINES_SLEEP[] = { "z z z", "Zzz...", "mmm... oranges", "five more minutes", "...hot springs..." };
+// idle chatter while the screen is on and nothing is happening (max ~24 chars)
+static const char* LINES_IDLE[]  = {
+    "Is it lunch yet?", "I only trust ducks", "Beep boop. Sniff sniff.", "Any tiny radios about?",
+    "Hot spring would be nice", "Orange is a mood", "Quiet on the BLE front", "I contain no skimmers",
+    "Your card trusts me", "Smells like receipts", "Pet me. No, scan first.", "2.4 GHz in my dreams",
+    "Long line today", "Chill. Visibly chill.", "100% fraud-free rodent", "Listening, so you don't",
+    "Capy-barely awake", "Nothing fishy. Yet.", "Checking the vibes", "Here and sniffing"
+};
+static const uint8_t LINES_IDLE_N = sizeof(LINES_IDLE) / sizeof(LINES_IDLE[0]);
+static uint32_t chatterAt = 0;
+static uint8_t  lastIdleLine = 255;
 
 static void pickLine(CapyState st) {
     const char** arr; int n;
@@ -75,6 +86,7 @@ static void pickLine(CapyState st) {
     }
     bubbleIdx = (bubbleIdx + 1 + (millis() % n)) % n;
     bubble = arr[bubbleIdx];
+    chatterAt = millis();
 }
 
 // ---------------- small widgets ----------------
@@ -181,6 +193,7 @@ static void drawBubble() {
     if (!bubble.length()) return;
     scene.setFont(&fonts::Font2);
     int tw = scene.textWidth(bubble) + 16;
+    if (tw > PANEX - 6) { scene.setFont(&fonts::Font0); tw = scene.textWidth(bubble) + 16; }   // long line: small font
     int bx = PANEX - tw - 4, by = 2, bh = 24;
     if (bx < 2) bx = 2;
     scene.fillRoundRect(bx, by, tw, bh, 8, 7);
@@ -518,6 +531,17 @@ void service() {
     // nap when idle on READY
     if (det::state == ST_READY && !sleepAt && now - lastTouchMs() > NAP_AFTER_MS) sleepAt = now;
     syncCapy();
+    // idle chatter: a new musing every 12 to 20 s while READY and awake, with an
+    // instruction line mixed back in every few lines so the job stays obvious
+    if (capy == CP_IDLE && cur == SCR_HOME && now - chatterAt > 12000 + (now % 8000)) {
+        chatterAt = now;
+        static uint8_t sinceHint = 0;
+        if (++sinceHint >= 4) { sinceHint = 0; pickLine(CP_IDLE); }
+        else {
+            uint8_t i; do { i = (uint8_t)(esp_random() % LINES_IDLE_N); } while (i == lastIdleLine);
+            lastIdleLine = i; bubble = LINES_IDLE[i];
+        }
+    } else if (capy == CP_SLEEP && cur == SCR_HOME && now - chatterAt > 20000) { chatterAt = now; pickLine(CP_SLEEP); }
     if (now - lastStatus > 1000) {
         lastStatus = now; drawStatus();
         // the Home pane's suspect count and the device list follow the radios
