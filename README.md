@@ -1,5 +1,7 @@
 # Skimmer Detector
 
+Two builds live here: the pocket XIAO ESP32-C6 unit described below, and a touchscreen version for the 2.8" Cheap Yellow Display in [`cyd/`](cyd/README.md).
+
 Pocket BLE/WiFi sniffer that flags the radio modules found inside card skimmers and shimmers. Take a baseline a few feet away, then hold it next to the terminal for a few seconds before you insert your card.
 
 Built on a Seeed XIAO ESP32-C6 with a 0.96" SSD1306 OLED, four front buttons, and a custom carrier PCB (see `hardware/pcb-v1/`).

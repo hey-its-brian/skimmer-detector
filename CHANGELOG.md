@@ -1,5 +1,9 @@
 # Changelog
 
+## cyd-1.0.0 (2026-10-15)
+
+CYD edition in `cyd/`: the same detector on an ESP32-2432S028R (2-USB) with a touch UI, an animated capybara, and the hit log on the microSD. See `cyd/README.md`. Merged image `firmware/skimmer-detector-cyd-1.0.0-cyd2usb-full.bin`, offset `0x0`, ESP32 4 MB. Untested on hardware at the time of this commit: display colours, touch calibration and the SD mount are the three things to check first.
+
 ## v3.0.0 (2026-10-15)
 
 First release on the PCB v1 carrier board.
