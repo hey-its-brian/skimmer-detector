@@ -61,7 +61,7 @@ static const int CAL_PTS[3][2] = { {20, 20}, {300, 20}, {20, 220} };
 static const char* LINES_READY[] = { "Hold me on the card slot", "Tap me and I'll sniff", "Ready when you are", "Cards go in, I listen" };
 static const char* LINES_WAIT[]  = { "Sniff sniff...", "Hmm, let me listen", "Hold still a sec", "Checking the air..." };
 static const char* LINES_SAFE[]  = { "All clear, go ahead", "Nothing fishy here", "Smells like oranges", "You're good" };
-static const char* LINES_STOP[]  = { "NOPE. Pay inside!", "Skimmer! Walk away", "Don't use this one", "Tap, cash, or leave" };
+static const char* LINES_STOP[]  = { "NOPE. Not this one!", "Skimmer! Walk away", "Don't use this reader", "Find another reader" };
 static const char* LINES_SLEEP[] = { "z z z", "Zzz...", "mmm... oranges" };
 
 static void pickLine(CapyState st) {
@@ -239,7 +239,7 @@ static void drawHomePane() {
     switch (det::state) {
         case ST_WAIT: word = "SNIFF"; col = C_YEL;   sub = "Hold still";  btn = nullptr; break;
         case ST_SAFE: word = "SAFE";  col = C_GREEN; sub = "Go ahead";    btn = "AGAIN"; break;
-        case ST_STOP: word = "STOP";  col = C_RED;   sub = "Pay inside";  btn = "WHY?"; break;
+        case ST_STOP: word = "STOP";  col = C_RED;   sub = "Not this one";  btn = "WHY?"; break;
         default:      word = "READY"; col = C_TEXT;  sub = "On the slot"; btn = "CHECK"; break;
     }
     lcd.setFont(&fonts::FreeSansBold18pt7b);

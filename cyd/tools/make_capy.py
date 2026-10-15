@@ -62,53 +62,49 @@ def outline(im):
 def capy(state="idle", frame=0):
     im = new()
     d = ImageDraw.Draw(im)
-    DY = 4  # headroom for the orange and the hackles
     breath = 1 if (state == "idle" and frame == 1) else 0
-    shake = (1 if frame % 2 else -1) if state == "stop" else 0
-    headdy = {"sniff": [-2, -1, 1][frame % 3], "sleep": 3, "safe": 0}.get(state, 0)
-    ox = shake
+    ox = (1 if frame % 2 else -1) if state == "stop" else 0
+    headdy = {"sniff": [-2, -1, 1][frame % 3], "sleep": 3}.get(state, 0)
+    hy = 10 + headdy                         # head top
+    by = 17 - breath                         # body top
 
-    # legs (behind body)
-    for lx in (12, 21, 33, 42):
-        d.rectangle((lx + ox, 35 + DY, lx + 5 + ox, 43 + DY), fill=SHADE)
-    # body
-    d.ellipse((5 + ox, 15 - breath + DY, 47 + ox, 41 + DY), fill=BODY)
-    d.ellipse((12 + ox, 24 + DY, 42 + ox, 40 + DY), fill=CREAM)          # belly
-    d.ellipse((8 + ox, 15 - breath + DY, 44 + ox, 32 + DY), fill=BODY)   # cover top of belly
-    d.ellipse((10 + ox, 16 - breath + DY, 30 + ox, 24 + DY), fill=LITE)  # back highlight
-    if state == "stop":  # hackles up
-        for sx in (14, 20, 26, 32):
-            d.polygon([(sx + ox, 16 + DY), (sx + 2 + ox, 11 + DY), (sx + 4 + ox, 16 + DY)], fill=BODY)
-    # head
-    hy = 7 + headdy + DY
-    d.rounded_rectangle((29 + ox, hy, 61 + ox, hy + 26), radius=9, fill=BODY)
-    d.rounded_rectangle((45 + ox, hy + 9, 61 + ox, hy + 25), radius=5, fill=CREAM)  # snout
-    d.rounded_rectangle((33 + ox, hy + 2, 50 + ox, hy + 10), radius=4, fill=LITE)    # forehead
-    # ears
-    for ex in (34, 46):
-        d.ellipse((ex + ox, hy - 4, ex + 6 + ox, hy + 3), fill=BODY)
+    # legs first, the body overlaps their tops
+    for lx in (9, 18, 33, 42):
+        d.rectangle((lx + ox, 37, lx + 5 + ox, 45), fill=SHADE)
+        d.rectangle((lx + ox, 44, lx + 5 + ox, 45), fill=CREAM)      # toes
+    # ears before the head so the head hides their roots
+    for ex in (35, 47):
+        d.ellipse((ex + ox, hy - 4, ex + 6 + ox, hy + 4), fill=BODY)
         d.ellipse((ex + 2 + ox, hy - 2, ex + 4 + ox, hy + 1), fill=PINK)
-    # nostrils
+    # body
+    d.ellipse((3 + ox, by, 49 + ox, 41), fill=BODY)
+    d.ellipse((12 + ox, 27, 44 + ox, 40), fill=CREAM)                # belly
+    d.ellipse((9 + ox, by + 2, 31 + ox, by + 9), fill=LITE)          # back highlight
+    if state == "stop":                                              # hackles up
+        for sx in (12, 18, 24, 30):
+            d.polygon([(sx + ox, by + 1), (sx + 2 + ox, by - 4), (sx + 4 + ox, by + 1)], fill=BODY)
+    # head: one rounded block that merges into the body, boxy muzzle in front
+    d.rounded_rectangle((30 + ox, hy, 60 + ox, hy + 25), radius=10, fill=BODY)
+    d.rounded_rectangle((46 + ox, hy + 9, 60 + ox, hy + 24), radius=4, fill=CREAM)   # muzzle
+    d.rounded_rectangle((34 + ox, hy + 3, 47 + ox, hy + 8), radius=3, fill=LITE)     # forehead
+    # nose and mouth
     nx = 55 + ox
-    if state == "sniff" and frame % 2:
-        d.rectangle((nx, hy + 12, nx + 1, hy + 13), fill=BLK)
-        d.rectangle((nx + 3, hy + 12, nx + 4, hy + 13), fill=BLK)
-    else:
-        d.point((nx, hy + 12), fill=BLK); d.point((nx + 3, hy + 12), fill=BLK)
-    # mouth
+    wide = state == "sniff" and frame % 2 == 1
+    for dx in (0, 3):
+        d.rectangle((nx + dx, hy + 11, nx + dx + (1 if wide else 0), hy + 11 + (1 if wide else 0)), fill=BLK)
     if state == "stop":
-        d.ellipse((50 + ox, hy + 18, 56 + ox, hy + 23), fill=BLK)
+        d.ellipse((50 + ox, hy + 16, 56 + ox, hy + 21), fill=BLK)
     elif state == "safe":
-        d.arc((48 + ox, hy + 15, 57 + ox, hy + 22), 10, 170, fill=OUT)
+        d.arc((49 + ox, hy + 12, 58 + ox, hy + 20), 20, 160, fill=OUT)
     else:
-        d.line((50 + ox, hy + 19, 55 + ox, hy + 19), fill=OUT)
+        d.line((51 + ox, hy + 17, 56 + ox, hy + 17), fill=OUT)
     # eye
-    ex, ey = 42 + ox, hy + 10
+    ex, ey = 42 + ox, hy + 11
     if state == "sleep" or (state == "idle" and frame == 2):
         d.line((ex - 1, ey + 1, ex + 2, ey + 1), fill=BLK)
     elif state == "safe":
         d.arc((ex - 2, ey - 1, ex + 3, ey + 3), 180, 360, fill=BLK)
-        d.point((ex + 7, ey + 5), fill=PINK); d.point((ex + 8, ey + 5), fill=PINK)
+        d.rectangle((ex + 5, ey + 4, ex + 7, ey + 4), fill=PINK)      # blush
     elif state == "stop":
         d.ellipse((ex - 2, ey - 2, ex + 3, ey + 3), fill=WHT)
         d.rectangle((ex, ey, ex + 1, ey + 1), fill=BLK)
@@ -117,13 +113,10 @@ def capy(state="idle", frame=0):
         d.point((ex - 1, ey), fill=WHT)
     # orange on the head (safe only)
     if state == "safe":
-        d.ellipse((36 + ox, hy - 9, 44 + ox, hy - 1), fill=ORG)
-        d.point((38 + ox, hy - 7), fill=WHT)
-        d.rectangle((40 + ox, hy - 11, 40 + ox, hy - 9), fill=ORGD)
-        d.ellipse((41 + ox, hy - 12, 44 + ox, hy - 10), fill=LEAF)
-    # feet toes
-    for lx in (12, 21, 33, 42):
-        d.line((lx + 1 + ox, 43 + DY, lx + 4 + ox, 43 + DY), fill=OUT)
+        d.ellipse((37 + ox, 1, 48 + ox, 12), fill=ORG)
+        d.rectangle((39 + ox, 3, 40 + ox, 4), fill=WHT)
+        d.rectangle((43 + ox, 0, 43 + ox, 1), fill=ORGD)
+        d.rounded_rectangle((44 + ox, 0, 48 + ox, 2), radius=1, fill=LEAF)
     outline(im)
     return im
 

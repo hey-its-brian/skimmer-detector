@@ -57,7 +57,7 @@ def home(state):
         for x in range(64):
             r, g, b, a = px[x, y]
             if (r, g, b) != (255, 0, 255): d.rectangle((4 + x * 3, TOP + 26 + y * 3, 4 + x * 3 + 2, TOP + 26 + y * 3 + 2), fill=(r, g, b))
-    lines = {"READY": "Hold me on the card slot", "SNIFF": "Sniff sniff...", "SAFE": "All clear, go ahead", "STOP": "NOPE. Pay inside!", "SLEEP": "z z z"}
+    lines = {"READY": "Hold me on the card slot", "SNIFF": "Sniff sniff...", "SAFE": "All clear, go ahead", "STOP": "NOPE. Not this one!", "SLEEP": "z z z"}
     t = lines[state]; tw = d.textlength(t, font=F12) + 16
     bx = PANEX - tw - 4
     d.rounded_rectangle((bx, TOP + 2, bx + tw, TOP + 26), 8, fill=PAL[7])
@@ -68,7 +68,7 @@ def home(state):
     # pane
     d.rectangle((PANEX, TOP, W, TABY), fill=PANEL); d.line((PANEX, TOP, PANEX, TABY), fill=LINE)
     word, col, sub, btn = {"READY": ("READY", TEXT, "On the slot", "CHECK"), "SNIFF": ("SNIFF", YEL, "Hold still", None),
-                           "SAFE": ("SAFE", GREEN, "Go ahead", "AGAIN"), "STOP": ("STOP", RED, "Pay inside", "WHY?"),
+                           "SAFE": ("SAFE", GREEN, "Go ahead", "AGAIN"), "STOP": ("STOP", RED, "Not this one", "WHY?"),
                            "SLEEP": ("READY", TEXT, "On the slot", "CHECK")}[state]
     cx = PANEX + 60
     tw = d.textlength(word, font=F26); d.text((cx - tw / 2, TOP + 18), word, fill=col, font=F26)
